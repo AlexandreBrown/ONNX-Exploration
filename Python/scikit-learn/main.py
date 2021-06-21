@@ -1,8 +1,9 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-from sklearn import preprocessing
+from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.model_selection import train_test_split
@@ -29,6 +30,8 @@ FEATURES_COLUMNS = [
     "DEP_TIME",
     "DEP_DEL15",
     "DEP_TIME_BLK",
+    "DIVERTED",
+    "CANCELLED",
     "DISTANCE",
 ]
 
@@ -41,20 +44,19 @@ def load_data():
     data_set.replace("", float("NaN"), inplace=True)
     data_set.dropna(subset=FEATURES_COLUMNS + TARGETS_COLUMNS, inplace=True)
 
-    x = data_set[FEATURES_COLUMNS].values
+    for column in data_set.columns:
+        if data_set[column].dtype == "object":
+            encoder = LabelEncoder()
+            data_set[column] = encoder.fit_transform(data_set[column])
 
-    op_unique_labelEncoder = preprocessing.LabelEncoder()
-    x[:, 2] = op_unique_labelEncoder.fit_transform(x[:, 2])
-    op_carrier_labelEncoder = preprocessing.LabelEncoder()
-    x[:, 4] = op_carrier_labelEncoder.fit_transform(x[:, 4])
-    tail_num_labelEncoder = preprocessing.LabelEncoder()
-    x[:, 5] = tail_num_labelEncoder.fit_transform(x[:, 5])
-    origin_labelEncoder = preprocessing.LabelEncoder()
-    x[:, 9] = origin_labelEncoder.fit_transform(x[:, 9])
-    dest_labelEncoder = preprocessing.LabelEncoder()
-    x[:, 12] = dest_labelEncoder.fit_transform(x[:, 12])
-    dep_time_labelEncoder = preprocessing.LabelEncoder()
-    x[:, 15] = dep_time_labelEncoder.fit_transform(x[:, 15])
+    print("-------------------------------------")
+    data_set.info()
+
+    _, ax = plt.subplots(figsize=(20, 20))
+    sns.heatmap(data_set.corr(), annot=True, linewidths=.5, ax=ax)
+    plt.show()
+
+    x = data_set[FEATURES_COLUMNS].values
 
     scaler = StandardScaler()
     x = scaler.fit_transform(x)
@@ -86,14 +88,70 @@ def test_decision_tree(X_trainset, X_testset, y_trainset, y_testset):
 
 
 def test_random_forest(X_trainset, X_testset, y_trainset, y_testset):
-    model = RandomForestRegressor(criterion="mse")
-    model.fit(X_trainset, y_trainset)
-    predictions = model.predict(X_testset)
-    mse_score = mean_squared_error(y_testset, predictions)
-    r2_score = model.score(X_testset, y_testset)
-    print("Random Forest score (MSE) :", mse_score)
-    print("Random Forest score (R2) :", r2_score)
-    return model
+    print("Random Forest")
+
+    estimators_score = {}
+    models = {}
+
+    minimum_number_of_estimators = 20
+    maximum_number_of_estimators = 70
+    number_of_estimators_step_size = 5
+
+    for number_of_estimators in range(minimum_number_of_estimators,
+                                      maximum_number_of_estimators + 1,
+                                      number_of_estimators_step_size):
+        print("Training Random Forest model with {} estimators ...".format(number_of_estimators))
+        model = RandomForestRegressor(n_estimators=number_of_estimators, criterion="mse")
+        model.fit(X_trainset, y_trainset)
+        r2_score = model.score(X_testset, y_testset)
+        estimators_score[number_of_estimators] = r2_score
+        print("R2 Score ", r2_score)
+        print("Max Depth ", model.estimators_[0].tree_.max_depth)
+
+    best_number_of_estimators = max(estimators_score, key=estimators_score.get)
+    print("Estimators results ", estimators_score)
+    print("best number of estimators (depth unlimited)", best_number_of_estimators)
+    print("Random Forest Best R2 score : ", estimators_score[best_number_of_estimators])
+
+    minimum_depth = 1
+    maximum_depth = 30
+    depth_step_size = 1
+
+    depth_score = {}
+
+    for max_depth in range(minimum_depth, maximum_depth + 1, depth_step_size):
+        print("Training Random Forest model with maximum depth of {} ...".format(max_depth))
+        model = RandomForestRegressor(n_estimators=50, criterion="mse", max_depth=max_depth)
+        model.fit(X_trainset, y_trainset)
+        r2_score = model.score(X_testset, y_testset)
+        print("R2 Score ", r2_score)
+        depth_score[max_depth] = r2_score
+        models[max_depth] = model
+
+    estimators_number_of_tests = ((
+                                              maximum_number_of_estimators - minimum_number_of_estimators) / number_of_estimators_step_size) + 1
+    estimators_x = np.linspace(minimum_number_of_estimators, maximum_number_of_estimators,
+                               int(estimators_number_of_tests))
+    estimators_results = estimators_score.values()
+    plt.plot(estimators_x, estimators_results, "r")
+    for estimator_x in estimators_x:
+        plt.axvline(x=estimator_x)
+    plt.xticks(np.arange(min(estimators_x), max(estimators_x) + 1, number_of_estimators_step_size))
+    plt.show()
+
+    depths_number_of_tests = ((maximum_depth - minimum_depth + 1) / depth_step_size)
+    depths_x = np.linspace(minimum_depth, maximum_depth, int(depths_number_of_tests))
+    depths_results = depth_score.values()
+    plt.plot(depths_x, depths_results, "b")
+    for depth_x in depths_x:
+        plt.axvline(x=depth_x)
+    plt.xticks(np.arange(min(depths_x), max(depths_x) + 1, depth_step_size))
+    plt.show()
+
+    best_number_of_depth = max(depth_score, key=depth_score.get)
+    print("Best number of depth : ", best_number_of_depth)
+
+    return models[best_number_of_depth]
 
 
 def test_linear_regression(X_trainset, X_testset, y_trainset, y_testset):
